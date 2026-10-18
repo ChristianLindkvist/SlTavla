@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Backstugevägen</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap">
+<style>
+  /* ===== Inställningar via CSS-färger ===== */
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --line: #232a33;
+    --text: #e8edf2;
+    --muted: #8b96a3;
+    --bus: #c8102e;        /* SL-röd för bussar */
+    --accent: #3fb68b;     /* "går snart"-grön */
+    --warn: #e3a63a;
+    --cancel: #e5484d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', 'Roboto', sans-serif;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    cursor: none;
+  }
+  .wrap {
+    height: 100%;
+    display: flex; flex-direction: column;
+    padding: 3vh 4vw;
+    gap: 2.5vh;
+  }
+
+  /* ----- Huvud ----- */
+  header { display: flex; align-items: baseline; justify-content: space-between; }
+  .stop { font-size: 3.6vh; font-weight: 600; letter-spacing: .01em; }
+  .stop small { display: block; font-size: 2vh; font-weight: 500; color: var(--muted); margin-top: .4vh; }
+  .clock { font-size: 6vh; font-weight: 600; letter-spacing: -.02em; }
+
+  /* ----- Nästa avgång ----- */
+  .hero {
+    flex: 1 1 auto;
+    background: var(--panel);
+    border-radius: 3vh;
+    padding: 4vh 4vw;
+    display: flex; align-items: center; gap: 4vw;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero .label {
+    position: absolute; top: 3vh; left: 4vw;
+    font-size: 2vh; font-weight: 600; text-transform: uppercase; letter-spacing: .14em; color: var(--muted);
+  }
+  .badge {
+    background: var(--bus); color: #fff;
+    font-weight: 800; border-radius: 1.6vh;
+    display: inline-flex; align-items: center; justify-content: center;
+    line-height: 1;
+  }
+  .hero .badge { font-size: 9vh; min-width: 18vh; height: 15vh; padding: 0 3vh; flex: 0 0 auto; }
+  .hero .info { flex: 1 1 auto; min-width: 0; }
+  .hero .dest {
+    font-size: 6.5vh; font-weight: 600; line-height: 1.1;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .hero .sub { font-size: 3vh; color: var(--muted); margin-top: 1.2vh; }
+  .hero .when { flex: 0 0 auto; text-align: right; }
+  .hero .mins { font-size: 22vh; font-weight: 800; line-height: .9; letter-spacing: -.04em; }
+  .hero .mins .unit { font-size: 5vh; font-weight: 600; letter-spacing: 0; margin-left: .6vw; color: var(--muted); }
+  .hero.soon .mins { color: var(--accent); }
+  .hero.now  .mins { color: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+  .hero.cancelled .mins { color: var(--cancel); font-size: 10vh; }
+  @keyframes pulse { 50% { opacity: .45; } }
+
+  /* ----- Följande avgångar ----- */
+  .list {
+    flex: 0 0 auto;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 2vw;
+  }
+  .card {
+    background: var(--panel); border-radius: 2vh;
+    padding: 2.4vh 1.6vw;
+    display: flex; flex-direction: column; gap: 1.4vh;
+    min-width: 0;
+  }
+  .card .top { display: flex; align-items: center; justify-content: space-between; gap: 1vw; }
+  .card .badge { font-size: 3.4vh; min-width: 7vh; height: 5.4vh; padding: 0 1.4vh; border-radius: 1vh; }
+  .card .m { font-size: 5.6vh; font-weight: 800; letter-spacing: -.02em; }
+  .card .m .unit { font-size: 2.2vh; font-weight: 600; color: var(--muted); margin-left: .3vw; }
+  .card .d { font-size: 2.6vh; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .t { font-size: 2.1vh; color: var(--muted); }
+  .card.cancelled .m { color: var(--cancel); font-size: 3.4vh; }
+  .card.empty { visibility: hidden; }
+
+  /* ----- Störningar / status ----- */
+  .notice {
+    display: none;
+    background: rgba(227,166,58,.12); color: var(--warn);
+    border-radius: 1.6vh; padding: 1.6vh 2vw;
+    font-size: 2.4vh; font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .notice.show { display: block; }
+  footer { display: flex; justify-content: space-between; font-size: 1.8vh; color: var(--muted); }
+  footer .dot { display: inline-block; width: 1vh; height: 1vh; border-radius: 50%; background: var(--accent); margin-right: .6vw; vertical-align: middle; }
+  footer.stale .dot { background: var(--cancel); }
+
+  .empty-state { font-size: 5vh; color: var(--muted); margin: auto; }
+
+  /* Stående läge: stapla allt */
+  @media (orientation: portrait) {
+    .hero { flex-direction: column; justify-content: center; text-align: center; gap: 2vh; padding: 6vh 4vw 3vh; }
+    .hero .label { display: none; }
+    .hero .info { flex: 0 0 auto; width: 100%; }
+    .hero .badge { font-size: 8vw; min-width: 16vw; height: 12vw; padding: 0 3vw; }
+    .hero .dest { font-size: 7.5vw; white-space: normal; }
+    .hero .sub { font-size: 3.6vw; }
+    .hero .when { text-align: center; }
+    .hero .mins { font-size: 26vw; }
+    .hero .mins .unit { font-size: 6vw; }
+    .list { grid-template-columns: repeat(2, 1fr); gap: 3vw; }
+    .card { padding: 2vh 3vw; gap: 1vh; }
+  }
+  .card .top { height: 5.6vh; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="stop">Backstugevägen<small id="dirLabel">Nästa avgångar</small></div>
+    <div class="clock" id="clock">--:--</div>
+  </header>
+
+  <section class="hero" id="hero">
+    <div class="empty-state">Hämtar avgångar…</div>
+  </section>
+
+  <div class="notice" id="notice"></div>
+
+  <section class="list" id="list"></section>
+
+  <footer id="footer">
+    <span><span class="dot"></span><span id="status">Ansluter…</span></span>
+    <span>Data: SL / Trafiklab</span>
+  </footer>
+</div>
+
+<script>
+  // ===== Inställningar =====
+  var SITE_ID = 3552;          // Backstugevägen
+  var REFRESH_SECONDS = 30;    // hur ofta data hämtas
+  var LINE_FILTER = [];        // t.ex. ['117'] för bara linje 117. Tomt = alla
+  var DIRECTION_CODE = null;   // 1 eller 2 för bara en riktning. null = båda
+  var MIN_WALK_MINUTES = 0;    // dölj avgångar du ändå inte hinner till (gångtid)
+  var LIST_COUNT = 4;          // antal kort under huvudavgången
+  // Tryck på en avgång öppnar hållplatsen i SL-appen. Byt ID om 3552 inte fungerar
+  // (testa varianter med SL_Lanktest.htm). Tom sträng = ingen klickfunktion.
+  var SL_APP_LINK = 'sl://stop?id=3552';
+
+  var API = 'https://transport.integration.sl.se/v1/sites/' + SITE_ID + '/departures';
+  var departures = [];
+  var deviationText = '';
+  var lastOk = null;
+
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function hhmm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+
+  // SL skickar lokal tid utan tidszon, t.ex. "2026-10-18T15:42:00"
+  function parseLocal(s) {
+    if (!s) return null;
+    var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):?(\d{2})?/.exec(s);
+    if (!m) return null;
+    return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  // Räknar fram minuter kvar själv, så att nedräkningen rör sig mellan hämtningarna
+  function timing(dep, now) {
+    var t = parseLocal(dep.expected) || parseLocal(dep.scheduled);
+    var cancelled = dep.state === 'CANCELLED' || (dep.journey && dep.journey.state === 'CANCELLED');
+    if (!t) return { mins: null, text: dep.display || '', time: '', cancelled: cancelled, t: null };
+    var diff = (t - now) / 60000;
+    var mins = Math.max(0, Math.floor(diff));
+    var sched = parseLocal(dep.scheduled);
+    var late = sched ? Math.round((t - sched) / 60000) : 0;
+    return { mins: mins, diff: diff, time: hhmm(t), late: late, cancelled: cancelled, t: t };
+  }
+
+  function minsHtml(tm) {
+    if (tm.cancelled) return 'Inställd';
+    if (tm.mins === null) return esc(tm.text);
+    if (tm.diff < 1) return 'Nu';
+    return tm.mins + '<span class="unit">min</span>';
+  }
+
+  function visible(now) {
+    return departures.filter(function (d) {
+      if (LINE_FILTER.length && LINE_FILTER.indexOf(String(d.line && d.line.designation)) < 0) return false;
+      if (DIRECTION_CODE !== null && d.direction_code !== DIRECTION_CODE) return false;
+      var tm = timing(d, now);
+      if (tm.t && tm.diff < MIN_WALK_MINUTES - 0.5) return false;
+      if (tm.t && tm.diff < -1) return false; // redan gått
+      return true;
+    }).sort(function (a, b) {
+      var ta = parseLocal(a.expected) || parseLocal(a.scheduled);
+      var tb = parseLocal(b.expected) || parseLocal(b.scheduled);
+      return (ta || 0) - (tb || 0);
+    });
+  }
+
+  function render() {
+    var now = new Date();
+    document.getElementById('clock').textContent = hhmm(now);
+
+    var list = visible(now);
+    var hero = document.getElementById('hero');
+    var cards = document.getElementById('list');
+
+    if (!list.length) {
+      hero.className = 'hero';
+      hero.innerHTML = '<div class="empty-state">' + (lastOk ? 'Inga fler avgångar just nu' : 'Hämtar avgångar…') + '</div>';
+      cards.innerHTML = '';
+    } else {
+      // Huvudavgång: första som inte är inställd (en inställd visas ändå i listan)
+      var first = list[0];
+      for (var i = 0; i < list.length; i++) { if (!timing(list[i], now).cancelled) { first = list[i]; break; } }
+      var tm = timing(first, now);
+      var cls = 'hero';
+      if (tm.cancelled) cls += ' cancelled';
+      else if (tm.mins !== null && tm.diff < 1) cls += ' now';
+      else if (tm.mins !== null && tm.mins <= 5) cls += ' soon';
+      hero.className = cls;
+
+      var sub = tm.time ? 'Avgår ' + tm.time : '';
+      if (tm.late >= 2) sub += ' · ' + tm.late + ' min sen';
+      if (first.stop_point && first.stop_point.designation) sub += ' · Läge ' + esc(first.stop_point.designation);
+
+      hero.innerHTML =
+        '<div class="label">Nästa avgång</div>' +
+        '<div class="badge">' + esc(first.line && first.line.designation) + '</div>' +
+        '<div class="info"><div class="dest">' + esc(first.destination) + '</div>' +
+        '<div class="sub">' + sub + '</div></div>' +
+        '<div class="when"><div class="mins">' + minsHtml(tm) + '</div></div>';
+
+      var rest = list.filter(function (d) { return d !== first; }).slice(0, LIST_COUNT);
+      var html = '';
+      for (var j = 0; j < LIST_COUNT; j++) {
+        var d = rest[j];
+        if (!d) { html += '<div class="card empty"></div>'; continue; }
+        var t2 = timing(d, now);
+        html += '<div class="card' + (t2.cancelled ? ' cancelled' : '') + '">' +
+          '<div class="top"><span class="badge">' + esc(d.line && d.line.designation) + '</span>' +
+          '<span class="m">' + minsHtml(t2) + '</span></div>' +
+          '<div class="d">' + esc(d.destination) + '</div>' +
+          '<div class="t">' + (t2.time ? 'Avgår ' + t2.time : '&nbsp;') + '</div></div>';
+      }
+      cards.innerHTML = html;
+    }
+
+    var n = document.getElementById('notice');
+    n.textContent = deviationText;
+    n.className = 'notice' + (deviationText ? ' show' : '');
+
+    var footer = document.getElementById('footer');
+    var status = document.getElementById('status');
+    if (lastOk) {
+      var age = (now - lastOk) / 1000;
+      footer.className = age > REFRESH_SECONDS * 4 ? 'stale' : '';
+      status.textContent = (age > REFRESH_SECONDS * 4 ? 'Ingen kontakt sedan ' : 'Uppdaterad ') + hhmm(lastOk);
+    }
+  }
+
+  function collectDeviations(data) {
+    var texts = [];
+    function add(list) {
+      (list || []).forEach(function (x) {
+        var m = x && (x.message || x.header);
+        if (m && texts.indexOf(m) < 0) texts.push(m);
+      });
+    }
+    add(data.stop_deviations);
+    (data.departures || []).forEach(function (d) { add(d.deviations); });
+    return texts.slice(0, 2).join('  •  ');
+  }
+
+  function fetchDepartures() {
+    fetch(API, { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (data) {
+        departures = data.departures || [];
+        deviationText = collectDeviations(data);
+        lastOk = new Date();
+        render();
+      })
+      .catch(function (e) { console.error('Kunde inte hämta avgångar:', e); render(); });
+  }
+
+  // Demo-läge för att testa utseendet: lägg till ?demo i adressen
+  if (/[?&]demo/.test(location.search)) {
+    fetchDepartures = function () {
+      var now = Date.now();
+      function iso(min) { var d = new Date(now + min * 60000); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':00'; }
+      departures = [
+        { line: { designation: '117' }, destination: 'Brommaplan', expected: iso(4.5), scheduled: iso(2.5), direction_code: 1, stop_point: { designation: 'A' } },
+        { line: { designation: '117' }, destination: 'Hässelby strand', expected: iso(9), scheduled: iso(9), direction_code: 2 },
+        { line: { designation: '119' }, destination: 'Hässelby gård', expected: iso(14), scheduled: iso(14), direction_code: 2 },
+        { line: { designation: '117' }, destination: 'Brommaplan', expected: iso(19), scheduled: iso(19), direction_code: 1, state: 'CANCELLED' },
+        { line: { designation: '119' }, destination: 'Vällingby', expected: iso(27), scheduled: iso(27), direction_code: 1 }
+      ];
+      deviationText = '';
+      lastOk = new Date();
+      render();
+    };
+  }
+
+  function openSlApp() {
+    if (!SL_APP_LINK) return;
+    try {
+      if (window.fully && fully.startIntent) { fully.startIntent(SL_APP_LINK); return; }
+    } catch (e) { console.error(e); }
+    window.location.href = SL_APP_LINK;
+  }
+  document.getElementById('hero').addEventListener('click', openSlApp);
+  document.getElementById('list').addEventListener('click', function (e) {
+    var el = e.target;
+    while (el && el !== this) { if (el.className && el.className.indexOf('card') === 0) { openSlApp(); return; } el = el.parentNode; }
+  });
+
+  fetchDepartures();
+  setInterval(fetchDepartures, REFRESH_SECONDS * 1000);
+  setInterval(render, 5000); // nedräkning och klocka mellan hämtningarna
+</script>
+</body>
+</html>

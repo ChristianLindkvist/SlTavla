@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SL länktest</title>
+<style>
+  body { background: #0d1117; color: #e8edf2; font-family: sans-serif; padding: 4vh 5vw; }
+  h1 { font-size: 4vh; margin: 0 0 1vh; }
+  h2 { font-size: 2.6vh; margin: 3vh 0 1.5vh; color: #8b96a3; font-weight: 600; }
+  p { color: #8b96a3; font-size: 2.2vh; margin: 0 0 2vh; }
+  .row { display: flex; gap: 2vw; margin-bottom: 1.5vh; align-items: center; }
+  button { flex: 1; font-size: 2.4vh; padding: 2vh 2vw; border: 0; border-radius: 1.4vh; background: #161b22; color: #e8edf2; text-align: left; }
+  button:active { background: #c8102e; }
+  code { color: #3fb68b; }
+  input { flex: 1; font-size: 2.4vh; padding: 1.8vh; border-radius: 1.4vh; border: 1px solid #232a33; background: #161b22; color: #e8edf2; }
+  label { font-size: 2.2vh; color: #8b96a3; display: flex; align-items: center; gap: 1vw; margin-bottom: 2vh; }
+  .log { margin-top: 3vh; font-size: 2vh; color: #8b96a3; word-break: break-all; }
+</style>
+</head>
+<body>
+<h1>Testa SL-länkar</h1>
+<p>Tryck på en rad. Notera vilken som öppnar Backstugevägen i SL-appen, och om appen hamnar utanför Fully (liggande läge).</p>
+<label><input type="checkbox" id="newtask" checked style="flex:0 0 auto;width:3vh;height:3vh"> Öppna som separat app (NEW_TASK)</label>
+
+<h2>Hållplats-ID</h2>
+<div id="rows"></div>
+
+<h2>Eget ID eller egen länk</h2>
+<div class="row"><input id="custom" value="sl://stop?id="><button style="flex:0 0 auto" onclick="go(document.getElementById('custom').value)">Testa</button></div>
+<div class="log" id="log"></div>
+
+<script>
+  var links = [
+    'sl://stop?id=18003552',
+    'sl://stop?id=9091001000003552',
+    'sl://stop?id=3552',
+    'sl://stop?id=300103552'
+  ];
+  var rows = document.getElementById('rows');
+  links.forEach(function (l) {
+    var b = document.createElement('button');
+    b.innerHTML = '<code>' + l + '</code>';
+    b.onclick = function () { go(l); };
+    var r = document.createElement('div'); r.className = 'row'; r.appendChild(b); rows.appendChild(r);
+  });
+
+  // sl://stop?id=X  ->  intent://stop?id=X#Intent;scheme=sl;launchFlags=0x10000000;end
+  function toIntent(link) {
+    var m = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(link);
+    if (!m) return link;
+    return 'intent://' + m[2] + '#Intent;scheme=' + m[1] + ';launchFlags=0x10000000;end';
+  }
+
+  function go(l) {
+    var target = document.getElementById('newtask').checked ? toIntent(l) : l;
+    document.getElementById('log').textContent = 'Försökte öppna: ' + target + (window.fully ? ' (via Fully)' : ' (via webbläsaren)');
+    try { if (window.fully && fully.startIntent) { fully.startIntent(target); return; } } catch (e) {}
+    window.location.href = target;
+  }
+</script>
+</body>
+</html>

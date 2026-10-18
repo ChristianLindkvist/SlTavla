@@ -162,7 +162,7 @@
   var LIST_COUNT = 4;          // antal kort under huvudavgången
   // Tryck på en avgång öppnar hållplatsen i SL-appen. Byt ID om 3552 inte fungerar
   // (testa varianter med SL_Lanktest.htm). Tom sträng = ingen klickfunktion.
-  var SL_APP_LINK = 'sl://stop?id=3552';
+  var SL_APP_LINK = 'sl://stop?id=18003552';
 
   var API = 'https://transport.integration.sl.se/v1/sites/' + SITE_ID + '/departures';
   var departures = [];
@@ -325,12 +325,20 @@
     };
   }
 
+  // Gör om sl://... till en Android-intent som startar SL-appen som en egen app
+  // (NEW_TASK), så att den inte körs inuti Fully och kan rotera fritt.
+  function toIntent(link) {
+    var m = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(link);
+    if (!m || m[1] === 'intent') return link;
+    return 'intent://' + m[2] + '#Intent;scheme=' + m[1] + ';launchFlags=0x10000000;end';
+  }
   function openSlApp() {
     if (!SL_APP_LINK) return;
+    var target = toIntent(SL_APP_LINK);
     try {
-      if (window.fully && fully.startIntent) { fully.startIntent(SL_APP_LINK); return; }
+      if (window.fully && fully.startIntent) { fully.startIntent(target); return; }
     } catch (e) { console.error(e); }
-    window.location.href = SL_APP_LINK;
+    window.location.href = target;
   }
   document.getElementById('hero').addEventListener('click', openSlApp);
   document.getElementById('list').addEventListener('click', function (e) {

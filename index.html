@@ -192,6 +192,9 @@
   var TL_STOP_NAME = 'Backstugevägen'; // används för att slå upp hållplatsens nationella ID
   var TL_AREA_ID = '';                 // fyll i (t.ex. '740xxxxxx') om uppslaget väljer fel
   var TL_API = 'https://realtime-api.trafiklab.se/v1';
+  var TL_REFRESH_SECONDS = 60;   // Trafiklab cachar ändå i 60 s, tätare ger inget
+  var TL_ACTIVE_FROM = 6;        // hämta position bara mellan dessa timmar
+  var TL_ACTIVE_TO = 23;         // (utanför: bara om man trycker på ett kort)
 
   var API = 'https://transport.integration.sl.se/v1/sites/' + SITE_ID + '/departures';
   var departures = [];
@@ -357,9 +360,14 @@
   var tlAreaId = TL_AREA_ID;
   var tlBusy = false;
   var tlAgain = false;
+  var tripRefs = {};   // nyckel -> { trip_id, start_date }, så avgångsuppslaget görs en gång per tur
+  var tlFetched = {};  // nyckel -> när turen senast hämtades
+  var tlCalls = 0;     // räknare för den här sessionen (visas i konsolen)
 
   function tlGet(path) {
     var url = TL_API + path + (path.indexOf('?') < 0 ? '?' : '&') + 'key=' + TL_KEY;
+    tlCalls++;
+    console.log('Trafiklab-anrop #' + tlCalls + ': ' + path);
     return fetch(url, { cache: 'no-store' }).then(function (r) {
       if (!r.ok) throw new Error('Trafiklab HTTP ' + r.status);
       return r.json();
@@ -405,20 +413,35 @@
     // Släng uppslag för avgångar som inte längre visas
     var keep = {};
     list.forEach(function (d) { keep[heroKey(d)] = 1; });
-    for (var r in routes) { if (!keep[r]) delete routes[r]; }
+    [routes, tripRefs, tlFetched].forEach(function (o) { for (var r in o) { if (!keep[r]) delete o[r]; } });
+
+    // Spara på kvoten: inte när skärmen/sidan är dold, inte nattetid (om man inte valt
+    // en avgång själv), och inte oftare än TL_REFRESH_SECONDS per tur.
+    if (document.hidden) return;
+    var h = now.getHours();
+    if (!selectedKey && (h < TL_ACTIVE_FROM || h >= TL_ACTIVE_TO)) return;
+    if (tlFetched[key] && now - tlFetched[key] < TL_REFRESH_SECONDS * 1000 - 2000) return;
+
     tlBusy = true;
+    tlFetched[key] = now.getTime();
     findAreaId()
       .then(function (area) {
-        return tlGet('/departures/' + area).then(function (data) {
-          var deps = data.departures || [];
-          var line = String(first.line && first.line.designation);
-          var m = null;
-          deps.forEach(function (d) {
-            var des = String(d.route && d.route.designation);
-            if (!m && des === line && sameMinute(d.scheduled, first.scheduled)) m = d;
-          });
-          if (!m || !m.trip) throw new Error('Hittade inte turen hos Trafiklab');
-          return tlGet('/trips/' + encodeURIComponent(m.trip.trip_id) + '/' + m.trip.start_date);
+        var ref = tripRefs[key]
+          ? Promise.resolve(tripRefs[key])
+          : tlGet('/departures/' + area).then(function (data) {
+              var deps = data.departures || [];
+              var line = String(first.line && first.line.designation);
+              var m = null;
+              deps.forEach(function (d) {
+                var des = String(d.route && d.route.designation);
+                if (!m && des === line && sameMinute(d.scheduled, first.scheduled)) m = d;
+              });
+              if (!m || !m.trip) throw new Error('Hittade inte turen hos Trafiklab');
+              tripRefs[key] = { trip_id: m.trip.trip_id, start_date: m.trip.start_date };
+              return tripRefs[key];
+            });
+        return ref.then(function (t) {
+          return tlGet('/trips/' + encodeURIComponent(t.trip_id) + '/' + t.start_date);
         }).then(function (trip) {
           var calls = trip.calls || [];
           var myIdx = -1;
@@ -542,8 +565,13 @@
     updatePosition();
   });
 
+  // När skärmen/sidan blir synlig igen: hämta direkt i stället för att vänta
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) fetchDepartures();
+  });
+
   fetchDepartures();
-  setInterval(fetchDepartures, REFRESH_SECONDS * 1000);
+  setInterval(function () { if (!document.hidden) fetchDepartures(); }, REFRESH_SECONDS * 1000);
   setInterval(render, 5000); // nedräkning och klocka mellan hämtningarna
 </script>
 </body>

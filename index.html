@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0d1117">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
 <title>Backstugevägen</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap">
 <style>
@@ -564,6 +568,11 @@
     render();
     updatePosition();
   });
+
+  // Gör sidan installerbar som app (fungerar bara via https, t.ex. GitHub Pages)
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js').catch(function (e) { console.error('Service worker:', e); });
+  }
 
   // När skärmen/sidan blir synlig igen: hämta direkt i stället för att vänta
   document.addEventListener('visibilitychange', function () {

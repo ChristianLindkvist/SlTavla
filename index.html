@@ -74,6 +74,26 @@
   .hero .when { flex: 0 0 auto; text-align: right; }
   .hero .mins { font-size: 22vh; font-weight: 800; line-height: .9; letter-spacing: -.04em; }
   .hero .mins .unit { font-size: 5vh; font-weight: 600; letter-spacing: 0; margin-left: .6vw; color: var(--muted); }
+  /* Var är bussen nu */
+  .route { margin-top: 3vh; display: none; }
+  .route.show { display: block; }
+  .route .txt { font-size: 2.6vh; color: var(--text); margin-bottom: 1.8vh; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .route .txt b { color: var(--accent); font-weight: 600; }
+  .strip { display: flex; align-items: flex-start; }
+  .strip .st { flex: 1 1 0; min-width: 0; position: relative; padding-top: 3.2vh; }
+  .strip .st::before { content: ''; position: absolute; top: 1.1vh; left: 0; right: 0; height: .5vh; background: var(--line); }
+  .strip .st:first-child::before { left: 50%; }
+  .strip .st:last-child::before { right: 50%; }
+  .strip .st.done::before { background: var(--muted); }
+  .strip .dot { position: absolute; top: .4vh; left: 50%; width: 1.9vh; height: 1.9vh; margin-left: -.95vh; border-radius: 50%; background: var(--panel); border: .45vh solid var(--muted); box-sizing: border-box; }
+  .strip .st.done .dot { background: var(--muted); }
+  .strip .st.me .dot { border-color: var(--bus); background: var(--bus); width: 2.6vh; height: 2.6vh; margin-left: -1.3vh; top: 0; }
+  .strip .bus { position: absolute; top: -.6vh; width: 3.4vh; height: 3.4vh; margin-left: -1.7vh; border-radius: 50%; background: var(--accent); color: #0d1117; font-size: 1.8vh; font-weight: 800; display: flex; align-items: center; justify-content: center; z-index: 2; }
+  .strip .nm { font-size: 1.8vh; color: var(--muted); text-align: center; padding: 0 .4vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .strip .st.me .nm { color: var(--text); font-weight: 600; }
+  .hero.picked { box-shadow: inset 0 0 0 .5vh var(--accent); }
+  .hero.picked .label { color: var(--accent); }
+  .card:not(.empty):active { box-shadow: inset 0 0 0 .4vh var(--accent); }
   .hero.soon .mins { color: var(--accent); }
   .hero.now  .mins { color: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
   .hero.cancelled .mins { color: var(--cancel); font-size: 10vh; }
@@ -118,12 +138,15 @@
   @media (orientation: portrait) {
     .hero { flex-direction: column; justify-content: center; text-align: center; gap: 2vh; padding: 6vh 4vw 3vh; }
     .hero .label { display: none; }
+    .strip { display: none; }
+    .route { margin-top: 1.5vh; }
+    .route .txt { font-size: 3.4vw; margin-bottom: 0; }
     .hero .info { flex: 0 0 auto; width: 100%; }
     .hero .badge { font-size: 8vw; min-width: 16vw; height: 12vw; padding: 0 3vw; }
     .hero .dest { font-size: 7.5vw; white-space: normal; }
     .hero .sub { font-size: 3.6vw; }
     .hero .when { text-align: center; }
-    .hero .mins { font-size: 26vw; }
+    .hero .mins { font-size: 22vw; }
     .hero .mins .unit { font-size: 6vw; }
     .list { grid-template-columns: repeat(2, 1fr); gap: 3vw; }
     .card { padding: 2vh 3vw; gap: 1vh; }
@@ -148,7 +171,7 @@
 
   <footer id="footer">
     <span><span class="dot"></span><span id="status">Ansluter…</span></span>
-    <span>Data: SL / Trafiklab</span>
+    <span><span id="posStatus"></span> &nbsp; Data: SL / Trafiklab.se</span>
   </footer>
 </div>
 
@@ -160,9 +183,15 @@
   var DIRECTION_CODE = null;   // 1 eller 2 för bara en riktning. null = båda
   var MIN_WALK_MINUTES = 0;    // dölj avgångar du ändå inte hinner till (gångtid)
   var LIST_COUNT = 4;          // antal kort under huvudavgången
-  // Tryck på en avgång öppnar hållplatsen i SL-appen. Byt ID om 3552 inte fungerar
-  // (testa varianter med SL_Lanktest.htm). Tom sträng = ingen klickfunktion.
-  var SL_APP_LINK = 'sl://stop?id=18003552';
+  // Tryck på ett kort visar den avgången stort, med var bussen är.
+  // Efter så här många sekunder (eller tryck på stora rutan) går tavlan tillbaka.
+  var SELECT_SECONDS = 60;
+
+  // "Var är bussen nu" via Trafiklab Realtime APIs (kräver nyckel). Tom nyckel = av.
+  var TL_KEY = '0365df7a991540d48a2a2b06c3a3fdd4';
+  var TL_STOP_NAME = 'Backstugevägen'; // används för att slå upp hållplatsens nationella ID
+  var TL_AREA_ID = '';                 // fyll i (t.ex. '740xxxxxx') om uppslaget väljer fel
+  var TL_API = 'https://realtime-api.trafiklab.se/v1';
 
   var API = 'https://transport.integration.sl.se/v1/sites/' + SITE_ID + '/departures';
   var departures = [];
@@ -220,6 +249,22 @@
     });
   }
 
+  // Vald avgång (tryck på ett kort). null = visa nästa avgång som vanligt.
+  var selectedKey = null;
+  var selectedAt = 0;
+
+  // Huvudavgång: vald avgång om den finns kvar, annars första som inte är inställd
+  function heroDep(list, now) {
+    if (selectedKey) {
+      if (now - selectedAt < SELECT_SECONDS * 1000) {
+        for (var s = 0; s < list.length; s++) { if (heroKey(list[s]) === selectedKey) return list[s]; }
+      }
+      selectedKey = null;
+    }
+    for (var i = 0; i < list.length; i++) { if (!timing(list[i], now).cancelled) return list[i]; }
+    return list[0] || null;
+  }
+
   function render() {
     var now = new Date();
     document.getElementById('clock').textContent = hhmm(now);
@@ -233,11 +278,9 @@
       hero.innerHTML = '<div class="empty-state">' + (lastOk ? 'Inga fler avgångar just nu' : 'Hämtar avgångar…') + '</div>';
       cards.innerHTML = '';
     } else {
-      // Huvudavgång: första som inte är inställd (en inställd visas ändå i listan)
-      var first = list[0];
-      for (var i = 0; i < list.length; i++) { if (!timing(list[i], now).cancelled) { first = list[i]; break; } }
+      var first = heroDep(list, now);
       var tm = timing(first, now);
-      var cls = 'hero';
+      var cls = 'hero' + (selectedKey ? ' picked' : '');
       if (tm.cancelled) cls += ' cancelled';
       else if (tm.mins !== null && tm.diff < 1) cls += ' now';
       else if (tm.mins !== null && tm.mins <= 5) cls += ' soon';
@@ -248,10 +291,10 @@
       if (first.stop_point && first.stop_point.designation) sub += ' · Läge ' + esc(first.stop_point.designation);
 
       hero.innerHTML =
-        '<div class="label">Nästa avgång</div>' +
+        '<div class="label">' + (selectedKey ? 'Vald avgång · tryck för att gå tillbaka' : 'Nästa avgång') + '</div>' +
         '<div class="badge">' + esc(first.line && first.line.designation) + '</div>' +
         '<div class="info"><div class="dest">' + esc(first.destination) + '</div>' +
-        '<div class="sub">' + sub + '</div></div>' +
+        '<div class="sub">' + sub + '</div>' + routeHtml(first, now) + '</div>' +
         '<div class="when"><div class="mins">' + minsHtml(tm) + '</div></div>';
 
       var rest = list.filter(function (d) { return d !== first; }).slice(0, LIST_COUNT);
@@ -260,7 +303,7 @@
         var d = rest[j];
         if (!d) { html += '<div class="card empty"></div>'; continue; }
         var t2 = timing(d, now);
-        html += '<div class="card' + (t2.cancelled ? ' cancelled' : '') + '">' +
+        html += '<div class="card' + (t2.cancelled ? ' cancelled' : '') + '" data-key="' + esc(heroKey(d)) + '">' +
           '<div class="top"><span class="badge">' + esc(d.line && d.line.designation) + '</span>' +
           '<span class="m">' + minsHtml(t2) + '</span></div>' +
           '<div class="d">' + esc(d.destination) + '</div>' +
@@ -303,8 +346,151 @@
         deviationText = collectDeviations(data);
         lastOk = new Date();
         render();
+        updatePosition();
       })
       .catch(function (e) { console.error('Kunde inte hämta avgångar:', e); render(); });
+  }
+
+  // ===== Var är bussen nu (Trafiklab Realtime APIs) =====
+  // routes[nyckel] = { calls: [...], myIdx: n }, en per avgång vi har slagit upp
+  var routes = {};
+  var tlAreaId = TL_AREA_ID;
+  var tlBusy = false;
+  var tlAgain = false;
+
+  function tlGet(path) {
+    var url = TL_API + path + (path.indexOf('?') < 0 ? '?' : '&') + 'key=' + TL_KEY;
+    return fetch(url, { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('Trafiklab HTTP ' + r.status);
+      return r.json();
+    });
+  }
+  function pick(o, a, b) { return o ? (o[a] != null ? o[a] : o[b]) : null; }
+  function heroKey(d) { return d ? (d.line && d.line.designation) + '|' + (d.scheduled || '') : ''; }
+
+  function findAreaId() {
+    if (tlAreaId) return Promise.resolve(tlAreaId);
+    try { var c = localStorage.getItem('tlAreaId'); if (c) { tlAreaId = c; return Promise.resolve(c); } } catch (e) {}
+    return tlGet('/stops/name/' + encodeURIComponent(TL_STOP_NAME)).then(function (data) {
+      var groups = data.stop_groups || [];
+      var want = TL_STOP_NAME.toLowerCase();
+      var best = null;
+      groups.forEach(function (g) {
+        var n = String(g.name || '').toLowerCase();
+        if (n.indexOf(want) < 0) return;
+        var score = (n === want ? 3 : 0) + (n.indexOf('sundbyberg') >= 0 ? 2 : 0) + (g.area_type === 'RIKSHALLPLATS' ? 1 : 0);
+        if (!best || score > best.s) best = { g: g, s: score };
+      });
+      if (!best) throw new Error('Hittade ingen hållplats som heter ' + TL_STOP_NAME);
+      tlAreaId = String(best.g.id);
+      console.log('Trafiklab area id:', tlAreaId, best.g.name);
+      try { localStorage.setItem('tlAreaId', tlAreaId); } catch (e) {}
+      return tlAreaId;
+    });
+  }
+
+  function sameMinute(a, b) {
+    var ta = parseLocal(a), tb = parseLocal(b);
+    return ta && tb && Math.abs(ta - tb) < 90000;
+  }
+
+  function updatePosition() {
+    if (!TL_KEY) return;
+    if (tlBusy) { tlAgain = true; return; }
+    var now = new Date();
+    var list = visible(now);
+    var first = heroDep(list, now);
+    if (!first) return;
+    var key = heroKey(first);
+    // Släng uppslag för avgångar som inte längre visas
+    var keep = {};
+    list.forEach(function (d) { keep[heroKey(d)] = 1; });
+    for (var r in routes) { if (!keep[r]) delete routes[r]; }
+    tlBusy = true;
+    findAreaId()
+      .then(function (area) {
+        return tlGet('/departures/' + area).then(function (data) {
+          var deps = data.departures || [];
+          var line = String(first.line && first.line.designation);
+          var m = null;
+          deps.forEach(function (d) {
+            var des = String(d.route && d.route.designation);
+            if (!m && des === line && sameMinute(d.scheduled, first.scheduled)) m = d;
+          });
+          if (!m || !m.trip) throw new Error('Hittade inte turen hos Trafiklab');
+          return tlGet('/trips/' + encodeURIComponent(m.trip.trip_id) + '/' + m.trip.start_date);
+        }).then(function (trip) {
+          var calls = trip.calls || [];
+          var myIdx = -1;
+          for (var k = 0; k < calls.length; k++) {
+            var s = calls[k].stop || {};
+            if (String(s.area_id) === String(tlAreaId) || String(s.name || '').toLowerCase().indexOf(TL_STOP_NAME.toLowerCase()) >= 0) { myIdx = k; break; }
+          }
+          if (myIdx < 0) throw new Error('Backstugevägen saknas i turens hållplatser');
+          routes[key] = { calls: calls, myIdx: myIdx };
+          setPosStatus('');
+          render();
+        });
+      })
+      .catch(function (e) {
+        console.error('Position:', e);
+        setPosStatus(String(e.message || e));
+        if (!routes[key]) routes[key] = { error: true };
+        render();
+      })
+      .then(function () {
+        tlBusy = false;
+        if (tlAgain) { tlAgain = false; updatePosition(); }
+      });
+  }
+
+  function callTime(c, kind) {
+    return parseLocal(pick(c, 'realtime' + kind, 'realtime_' + kind.toLowerCase())) ||
+           parseLocal(pick(c, 'scheduled' + kind, 'scheduled_' + kind.toLowerCase()));
+  }
+  function stopName(c) {
+    var n = (c.stop && c.stop.name) || '';
+    return n.replace(/\s*\(.*\)$/, '');
+  }
+
+  function routeHtml(first, now) {
+    var route = routes[heroKey(first)];
+    if (!TL_KEY) return '';
+    if (!route) return '<div class="route show"><div class="txt" style="color:var(--muted)">Hämtar var bussen är…</div></div>';
+    if (route.error) return '';
+    var calls = route.calls, my = route.myIdx;
+    var last = -1; // senaste passerade hållplats före vår
+    for (var i = 0; i < my; i++) {
+      var t = callTime(calls[i], 'Departure') || callTime(calls[i], 'Arrival');
+      if (t && t <= now) last = i;
+    }
+    var txt;
+    if (last < 0) {
+      var t0 = callTime(calls[0], 'Departure');
+      txt = 'Startar från <b>' + esc(stopName(calls[0])) + '</b>' + (t0 ? ' ' + hhmm(t0) : '');
+    } else if (last === my - 1) {
+      txt = 'Har lämnat <b>' + esc(stopName(calls[last])) + '</b> · nästa är Backstugevägen';
+    } else {
+      var left = my - last;
+      txt = 'Vid <b>' + esc(stopName(calls[last])) + '</b> · ' + left + ' hållplatser bort';
+    }
+
+    // Remsa: upp till 5 hållplatser som slutar på vår
+    var from = Math.max(0, Math.min(last, my - 4));
+    var html = '<div class="strip">';
+    for (var j = from; j <= my; j++) {
+      var cls = 'st' + (j <= last ? ' done' : '') + (j === my ? ' me' : '');
+      var bus = '';
+      if (j === last) bus = '<span class="bus" style="left:' + (j === my - 1 ? 100 : 75) + '%">' + '&#9654;' + '</span>';
+      html += '<div class="' + cls + '"><span class="dot"></span>' + bus + '<div class="nm">' + esc(stopName(calls[j])) + '</div></div>';
+    }
+    html += '</div>';
+    return '<div class="route show"><div class="txt">' + txt + '</div>' + html + '</div>';
+  }
+
+  function setPosStatus(msg) {
+    var el = document.getElementById('posStatus');
+    if (el) el.textContent = msg ? 'Position: ' + msg : '';
   }
 
   // Demo-läge för att testa utseendet: lägg till ?demo i adressen
@@ -321,29 +507,39 @@
       ];
       deviationText = '';
       lastOk = new Date();
+      var names = ['Sundbybergs centrum', 'Lötsjön', 'Rissne', 'Ursvik', 'Västra Ursvik', 'Backstugevägen', 'Brommaplan'];
+      departures.forEach(function (d) {
+        var arr = (parseLocal(d.expected) - now) / 60000;
+        var calls = names.map(function (n, i) {
+          return { stop: { name: n }, scheduledDeparture: iso(arr + (i - 5) * 2), realtimeDeparture: iso(arr + (i - 5) * 2) };
+        });
+        routes[heroKey(d)] = { calls: calls, myIdx: 5 };
+      });
       render();
     };
+    updatePosition = function () {};
   }
 
-  // Gör om sl://... till en Android-intent som startar SL-appen som en egen app
-  // (NEW_TASK), så att den inte körs inuti Fully och kan rotera fritt.
-  function toIntent(link) {
-    var m = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(link);
-    if (!m || m[1] === 'intent') return link;
-    return 'intent://' + m[2] + '#Intent;scheme=' + m[1] + ';launchFlags=0x10000000;end';
-  }
-  function openSlApp() {
-    if (!SL_APP_LINK) return;
-    var target = toIntent(SL_APP_LINK);
-    try {
-      if (window.fully && fully.startIntent) { fully.startIntent(target); return; }
-    } catch (e) { console.error(e); }
-    window.location.href = target;
-  }
-  document.getElementById('hero').addEventListener('click', openSlApp);
+  // Tryck på ett kort: visa den avgången stort. Tryck på stora rutan: tillbaka.
   document.getElementById('list').addEventListener('click', function (e) {
     var el = e.target;
-    while (el && el !== this) { if (el.className && el.className.indexOf('card') === 0) { openSlApp(); return; } el = el.parentNode; }
+    while (el && el !== this) {
+      var k = el.getAttribute && el.getAttribute('data-key');
+      if (k) {
+        selectedKey = k;
+        selectedAt = Date.now();
+        render();
+        updatePosition();
+        return;
+      }
+      el = el.parentNode;
+    }
+  });
+  document.getElementById('hero').addEventListener('click', function () {
+    if (!selectedKey) return;
+    selectedKey = null;
+    render();
+    updatePosition();
   });
 
   fetchDepartures();

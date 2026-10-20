@@ -406,6 +406,38 @@
     return ta && tb && Math.abs(ta - tb) < 90000;
   }
 
+  // Jämför namn utan versaler, parenteser och "station"/"centrum"-skillnader
+  function norm(s) {
+    return String(s || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-zåäö0-9]+/g, ' ').trim();
+  }
+  function destOf(d) {
+    var r = d.route || {};
+    var cands = [r.direction, r.destination && (r.destination.name || r.destination), r.name];
+    for (var i = 0; i < cands.length; i++) { if (cands[i] && typeof cands[i] === 'string') return cands[i]; }
+    return '';
+  }
+  function destMatches(a, b) {
+    var x = norm(a), y = norm(b);
+    if (!x || !y) return false;
+    return x.indexOf(y) >= 0 || y.indexOf(x) >= 0 || x.split(' ')[0] === y.split(' ')[0];
+  }
+
+  // Hitta rätt tur hos Trafiklab: samma linje, samma planerade minut och – viktigt när
+  // bussar åt båda hållen går nästan samtidigt – samma destination.
+  function matchTrip(deps, first) {
+    var line = String(first.line && first.line.designation);
+    var best = null;
+    deps.forEach(function (d) {
+      if (String(d.route && d.route.designation) !== line) return;
+      if (!sameMinute(d.scheduled, first.scheduled)) return;
+      var score = destMatches(destOf(d), first.destination) ? 2 : 0;
+      var diff = Math.abs(parseLocal(d.scheduled) - parseLocal(first.scheduled));
+      if (!best || score > best.score || (score === best.score && diff < best.diff)) best = { d: d, score: score, diff: diff };
+    });
+    if (best && best.score === 0) console.warn('Osäker matchning för', line, first.destination, '→ Trafiklab:', destOf(best.d));
+    return best && best.d;
+  }
+
   function updatePosition() {
     if (!TL_KEY) return;
     if (tlBusy) { tlAgain = true; return; }
@@ -433,15 +465,9 @@
         var ref = tripRefs[key]
           ? Promise.resolve(tripRefs[key])
           : tlGet('/departures/' + area).then(function (data) {
-              var deps = data.departures || [];
-              var line = String(first.line && first.line.designation);
-              var m = null;
-              deps.forEach(function (d) {
-                var des = String(d.route && d.route.designation);
-                if (!m && des === line && sameMinute(d.scheduled, first.scheduled)) m = d;
-              });
+              var m = matchTrip(data.departures || [], first);
               if (!m || !m.trip) throw new Error('Hittade inte turen hos Trafiklab');
-              tripRefs[key] = { trip_id: m.trip.trip_id, start_date: m.trip.start_date };
+              tripRefs[key] = { trip_id: m.trip.trip_id, start_date: m.trip.start_date, dest: first.destination };
               return tripRefs[key];
             });
         return ref.then(function (t) {
@@ -454,6 +480,17 @@
             if (String(s.area_id) === String(tlAreaId) || String(s.name || '').toLowerCase().indexOf(TL_STOP_NAME.toLowerCase()) >= 0) { myIdx = k; break; }
           }
           if (myIdx < 0) throw new Error('Backstugevägen saknas i turens hållplatser');
+          // Kontroll: turens sista hållplats ska likna avgångens destination
+          var lastStop = stopName(calls[calls.length - 1]);
+          console.log('Tur för', key, '→', first.destination, '| Trafiklab:', stopName(calls[0]), '→', lastStop);
+          var destOk = false;
+          for (var q = myIdx + 1; q < calls.length; q++) { if (destMatches(stopName(calls[q]), first.destination)) { destOk = true; break; } }
+          if (!destOk && myIdx < calls.length - 1) {
+            console.warn('Turens slutstation (' + lastStop + ') matchar inte ' + first.destination + ', slänger matchningen');
+            delete tripRefs[key];
+            delete tlFetched[key];
+            throw new Error('Fel tur matchad, försöker igen');
+          }
           routes[key] = { calls: calls, myIdx: myIdx };
           setPosStatus('');
           render();
